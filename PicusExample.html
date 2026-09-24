@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>ChainDrop: Inside the Shai-Hulud npm Supply Chain Attack</title>
+<meta name="description" content="ChainDrop is the August 2026 wave of the Shai-Hulud npm worm, hitting 400+ packages with billions of monthly downloads. How it works and how to defend.">
+<meta name="author" content="Murat Can Oruntak">
+
+<!-- TODO before publishing: replace canonical + og:url + og:image with real production URLs -->
+<link rel="canonical" href="https://example.com/chaindrop-npm-supply-chain-attack">
+
+<meta property="og:type" content="article">
+<meta property="og:title" content="ChainDrop: Inside the Shai-Hulud npm Supply Chain Attack">
+<meta property="og:description" content="How the ChainDrop worm compromised the keyv and cacheable npm ecosystems, and how organizations can defend against supply chain attacks.">
+<meta property="og:site_name" content="Threat Research">
+<meta property="og:url" content="https://example.com/chaindrop-npm-supply-chain-attack">
+<meta property="og:image" content="https://example.com/assets/chaindrop-attack-flow.png">
+<meta property="og:image:alt" content="ChainDrop npm worm execution and propagation flow diagram">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ChainDrop: Inside the Shai-Hulud npm Supply Chain Attack">
+<meta name="twitter:description" content="How the ChainDrop worm compromised the keyv and cacheable npm ecosystems, and how organizations can defend against supply chain attacks.">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "ChainDrop: Inside the Shai-Hulud npm Supply Chain Attack",
+  "author": { "@type": "Person", "name": "Murat Can Oruntak" },
+  "publisher": { "@type": "Person", "name": "Murat Can Oruntak" },
+  "image": "https://example.com/assets/chaindrop-attack-flow.png",
+  "mainEntityOfPage": { "@type": "WebPage", "@id": "https://example.com/chaindrop-npm-supply-chain-attack" },
+  "datePublished": "2026-08-15",
+  "dateModified": "2026-08-15",
+  "about": ["Supply chain attack", "npm", "Shai-Hulud", "ChainDrop"],
+  "keywords": "ChainDrop, Shai-Hulud, npm supply chain attack, keyv, cacheable, preinstall hook, Bun, EtherHiding, credential theft, MITRE ATT&CK",
+  "citation": [
+    "https://www.elastic.co/security-labs/shai-hulud-chaindrop-npm-supply-chain",
+    "https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/",
+    "https://www.microsoft.com/en-us/security/blog/2026/08/04/chaindrop-supply-chain-compromise-anatomy-self-propagating-worm/",
+    "https://www.aikido.dev/blog/keyv-and-friends-compromised-in-npm-supply-chain-attack"
+  ],
+  "description": "ChainDrop is the August 2026 variant of the Shai-Hulud npm worm, affecting 400+ npm packages with more than 1.3 billion monthly downloads."
+}
+</script>
+
+<style>
+  :root{
+    --picus-red:#c8102e;
+    --picus-navy:#0b1f3a;
+    --ink:#1a1a1a;
+    --muted:#5a6472;
+    --line:#e4e7ec;
+    --bg-soft:#f7f8fa;
+    --max:760px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);
+    line-height:1.7;
+    background:#fff;
+  }
+  .wrap{max-width:var(--max);margin:0 auto;padding:0 20px;}
+  header.hero{border-bottom:3px solid var(--picus-red);padding:48px 0 28px;}
+  .eyebrow{color:var(--picus-red);font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:13px;margin-bottom:14px;}
+  h1{font-size:38px;line-height:1.15;color:var(--picus-navy);margin:0 0 20px;font-weight:800;letter-spacing:-.01em;}
+  .byline{color:var(--muted);font-size:14px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;}
+  .byline span{color:var(--picus-red);}
+  article{padding:36px 0 60px;}
+  article h2{color:var(--picus-navy);font-size:26px;margin:44px 0 14px;font-weight:800;letter-spacing:-.01em;}
+  article p{margin:0 0 18px;font-size:17px;}
+  .keytakeaways{background:var(--bg-soft);border:1px solid var(--line);border-left:4px solid var(--picus-red);border-radius:10px;padding:22px 26px;margin:8px 0 12px;}
+  .keytakeaways h2{margin-top:0;color:var(--picus-red);font-size:20px;}
+  .keytakeaways ul{margin:0;padding-left:20px;}
+  .keytakeaways li{margin-bottom:10px;font-size:16px;}
+  table{width:100%;border-collapse:collapse;margin:18px 0 26px;font-size:15px;}
+  th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top;}
+  thead th{background:var(--picus-navy);color:#fff;font-size:13px;letter-spacing:.03em;text-transform:uppercase;}
+  tbody tr:nth-child(even){background:var(--bg-soft);}
+  footer{border-top:1px solid var(--line);padding:28px 0 60px;color:var(--muted);font-size:14px;}
+  code{background:var(--bg-soft);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:14px;}
+  figure.code{margin:22px 0;}
+  figure.code pre{background:#0d1b2e;color:#e6edf3;border-radius:10px;padding:18px 20px;overflow-x:auto;font-size:13.5px;line-height:1.65;margin:0;}
+  figure.code pre .kw{color:#79b8ff;}
+  figure.code pre .fn{color:#b392f0;}
+  figure.code pre .cm{color:#6a9955;}
+  figure.code pre .str{color:#9ecbff;}
+  figure.code figcaption{color:var(--muted);font-size:13px;margin-top:8px;font-style:italic;}
+  figure.diagram{margin:26px 0;padding:0;}
+  figure.diagram svg{width:100%;height:auto;display:block;background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 10px;}
+  figure.diagram figcaption{color:var(--muted);font-size:13px;margin-top:10px;font-style:italic;}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Threat Research</div>
+    <h1>ChainDrop: Inside the Shai-Hulud npm Supply Chain Attack</h1>
+    <div class="byline"><span>MURAT CAN ORUNTAK</span> &nbsp;|&nbsp; 15 MIN READ &nbsp;|&nbsp; AUGUST 15, 2026</div>
+  </div>
+</header>
+
+<div class="wrap">
+<article>
+
+  <section class="keytakeaways">
+    <h2>Key Takeaways</h2>
+    <ul>
+      <li>ChainDrop is the August 4, 2026 wave of the Shai-Hulud npm worm, a self-propagating, credential-stealing supply chain attack.</li>
+      <li>The malware executes through an npm <code>preinstall</code> hook, running a heavily obfuscated Bun-based payload before installation completes.</li>
+      <li>It steals npm, GitHub, cloud, and CI/CD credentials, then reuses any npm token with write access and 2FA bypass to poison and republish further packages without operator involvement.</li>
+      <li><a href="https://www.microsoft.com/en-us/security/blog/2026/08/04/chaindrop-supply-chain-compromise-anatomy-self-propagating-worm/" target="_blank" rel="noopener">Microsoft Threat Intelligence</a> and <a href="https://www.elastic.co/security-labs/shai-hulud-chaindrop-npm-supply-chain" target="_blank" rel="noopener">Elastic Security Labs</a> each reported more than 400 affected npm packages, and vendor estimates of the combined exposure range from 1.3 to over 2 billion monthly downloads. All counts were taken while the campaign was still spreading, so the real figures may be higher.</li>
+      <li>The <a href="https://www.picussecurity.com/security-validation-platform" target="_blank" rel="noopener">Picus Security Validation Platform</a> lets teams validate controls against supply-chain attack techniques like those used by ChainDrop, see whether prevention and detection actually fire, and close the gaps with ready-to-use mitigation content.</li>
+    </ul>
+  </section>
+
+  <p>Modern applications depend largely on open-source libraries, often hundreds of them, and many arrive indirectly, as dependencies of dependencies. This is largely what makes supply chain attacks against open-source registries so dangerous: a single compromised package can spread far beyond its own users through routine installs and updates. ChainDrop, the August 2026 wave of the Shai-Hulud npm worm, shows what happens when that compromised package can also propagate on its own.</p>
+
+  <h2>What Is ChainDrop?</h2>
+  <p><strong>ChainDrop</strong> is a self-propagating, credential-stealing npm worm first reported on August 4, 2026. It entered the ecosystem through the compromised maintainer account behind the <code>keyv</code> and <code>cacheable</code> caching libraries, executes automatically via an npm <code>preinstall</code> hook, and steals npm, GitHub, cloud, and CI/CD credentials from developer machines and build runners. Any stolen npm token with publish rights is then reused to poison and republish further packages, which is how a single account takeover grew into hundreds of compromised packages within hours.</p>
+
+  <h2>Shai-Hulud Lineage</h2>
+  <p>Shai-Hulud first appeared in September 2025, poisoning more than 500 npm packages including the widely used <code>@ctrl/tinycolor</code>. A second wave called "The Second Coming" followed in late 2025, introducing a Bun-based preinstall payload, and a variant called Mini Shai-Hulud abused GitHub's trusted publishing workflows in April 2026. <a href="https://phoenix.security/mini-shai-hulud-keyv-cacheable-npm-supply-chain-worm/" target="_blank" rel="noopener">[1]</a> Picus previously analyzed both the <a href="https://www.picussecurity.com/resource/blog/shai-hulud-worm-inside-the-npm-supply-chain-attack" target="_blank" rel="noopener">original Shai-Hulud worm</a> and the <a href="https://www.picussecurity.com/resource/blog/mini-shai-hulud-the-npm-supply-chain-worm-explained" target="_blank" rel="noopener">Mini Shai-Hulud variant</a> in depth. ChainDrop, first reported on August 4, 2026, is the latest wave in this lineage. <a href="https://www.opswat.com/blog/shai-hulud-returns-chaindrop-worm-hits-npm-infecting-hundreds-of-packages" target="_blank" rel="noopener">[2]</a></p>
+
+  <p>Before going further, one point shapes how the rest of this should be read: lineage does not always mean attribution. There are multiple indicators tying ChainDrop to the documented Shai-Hulud toolchain: the PBKDF2-based string decoder, the Bun 1.3.13 pin, the check that aborts execution on Russian-language systems, the self-applied <em>"Shai-Hulud: Here We Go Again"</em> marker, the Dune-derived naming carried through to the victim-owned exfiltration repositories, the IDE and AI-tool persistence planted in <code>.vscode</code> and <code>.claude</code> configuration paths, and the overall npm-propagation plus GitHub-exfiltration architecture. Together these point toward the same operator. However, since the Shai-Hulud source was published in May 2026 and is available to anyone, the campaign cannot be certainly attributed to the TeamPCP group. So the code lineage is clear, but the operator is not.</p>
+
+  <p>What sets ChainDrop apart from earlier waves is its command-and-control addressing: instead of a hardcoded domain, the active endpoint is resolved from an Ethereum smart contract, with a signed commit-search fallback behind it, so the operator can move the destination with a single on-chain transaction rather than shipping a new build. It is examined in detail later in this analysis. <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a></p>
+
+  <table>
+    <thead>
+      <tr><th>Wave</th><th>Date</th><th>Name</th><th>Scale</th><th>Key Technique</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>Sep 2025</td><td>Shai-Hulud</td><td>500+ packages</td><td>First self-replicating npm worm; credential theft via maintainer accounts</td></tr>
+      <tr><td>2</td><td>Nov–Dec 2025</td><td>The Second Coming (2.0)</td><td>700+ packages, 25,000+ repos</td><td>Bun-based preinstall payload; GitHub Actions backdoor; dead man's switch</td></tr>
+      <tr><td>3</td><td>Apr–May 2026</td><td>Mini Shai-Hulud</td><td>160+ packages (npm + PyPI)</td><td>SAP ecosystem target; abuse of trusted publishing / OIDC</td></tr>
+      <tr><td>4</td><td>Aug 4, 2026</td><td>ChainDrop</td><td>400&ndash;868 packages (1,381&ndash;2,212 versions); 1.3&ndash;2B monthly downloads <a href="https://www.aikido.dev/blog/keyv-and-friends-compromised-in-npm-supply-chain-attack" target="_blank" rel="noopener">[8]</a> <em>&mdash; counts as of Aug 4&ndash;6, campaign still active</em></td><td>keyv/cacheable compromise; blockchain C2; IDE/AI-tool persistence</td></tr>
+    </tbody>
+  </table>
+
+  <h2>How ChainDrop Works</h2>
+
+  <p>The attack targeted <code>keyv</code>, a small but foundational library that gives Node.js developers a unified key-value storage interface, so they can add caching without writing backend-specific code. It sits deep in the dependency tree of countless projects, and so do its sibling caching libraries. That reach is what turned a single account compromise into an ecosystem event within hours. In the preceding month, <code>keyv</code> alone saw over 600 million downloads. <a href="https://www.elastic.co/security-labs/shai-hulud-chaindrop-npm-supply-chain" target="_blank" rel="noopener">[4]</a> Almost none of those installs were deliberate choices by a developer; they were transitive pulls underneath something else. <a href="https://insights.integrity360.com/threat-advisories/chaindrop-the-keyv-and-cacheable-npm-supply-chain-attack" target="_blank" rel="noopener">[5]</a></p>
+
+  <p>ChainDrop spread in two distinct stages, and telling them apart is the key to understanding the attack. Everything that happens after a poisoned package lands on npm is the same in both cases.</p>
+
+  <p><strong>Stage one: break-in (T1195.002, Compromise Software Supply Chain).</strong> The attacker took over the account of the maintainer behind <code>keyv</code> and its sibling libraries, pushed malicious code into the shared repository holding all of them, and cut new releases. <a href="https://www.elastic.co/security-labs/shai-hulud-chaindrop-npm-supply-chain" target="_blank" rel="noopener">[4]</a> How that account was reached is still unclear; the evidence points to stolen maintainer credentials, but no report names the credential type or the method. <a href="https://www.microsoft.com/en-us/security/blog/2026/08/04/chaindrop-supply-chain-compromise-anatomy-self-propagating-worm/" target="_blank" rel="noopener">[6]</a></p>
+
+  <p><strong>Stage two: worm.</strong> The npm tokens found in the collected data (harvested in the credential-theft phase described below) are checked for package-write permission and 2FA-bypass capability. Tokens failing either check are skipped. <a href="https://www.elastic.co/security-labs/shai-hulud-chaindrop-npm-supply-chain" target="_blank" rel="noopener">[4]</a></p>
+  <figure class="code">
+<pre><span class="kw">async function</span> handleNpmTokens(tokens) {
+  <span class="kw">for</span> (<span class="kw">const</span> token <span class="kw">of</span> tokens) {
+    <span class="kw">const</span> access = <span class="kw">await</span> inspectNpmToken(token);
+
+    <span class="cm">// no write access, or 2FA required on publish</span>
+    <span class="kw">if</span> (!access.canPublish || !access.bypass2fa) <span class="kw">continue</span>;
+
+    <span class="kw">for</span> (<span class="kw">const</span> pkg <span class="kw">of</span> <span class="kw">await</span> enumerateWritablePackages(access)) {
+      <span class="kw">await</span> modifyAndRepublish(pkg, token);
+    }
+  }
+}</pre>
+    <figcaption>Figure 1. Simplified token-selection and republish loop. Adapted from Microsoft's analysis [6].</figcaption>
+  </figure>
+
+  <p>For each package the token can reach, the routine pulls down the latest tarball, drops the current malware bundle inside it, adds a loader, and rewrites the lifecycle scripts. That is the core observed propagation mechanism: a single stolen token turns into a malicious patch release on every package its owner can publish to. It also explains the shape these releases took on npm, showing up as routine patch bumps with no source commit or pull request behind them. <a href="https://www.microsoft.com/en-us/security/blog/2026/08/04/chaindrop-supply-chain-compromise-anatomy-self-propagating-worm/" target="_blank" rel="noopener">[6]</a></p>
+
+
+  <figure class="diagram">
+<svg viewBox="0 0 900 800" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ChainDrop attack flow. The chain starts once with the compromise of the keyv monorepo, which produces a poisoned package on npm. Installing it fires a preinstall hook that runs setup.mjs, which fetches Bun, runs preflight checks and sweeps credentials. Harvested credentials drive exfiltration, repository persistence, and the worm stage, which re-publishes poisoned tarballs and feeds the cycle back to npm.">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="#5a6472"/>
+    </marker>
+    <marker id="arR" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="#c8102e"/>
+    </marker>
+  </defs>
+  <style>
+    .bx{fill:#fff;stroke:#d6dbe2;stroke-width:1.5;rx:8}
+    .bxr{fill:#fdf2f4;stroke:#c8102e;stroke-width:1.5;rx:8}
+    .bxk{fill:#fff;stroke:#0b1f3a;stroke-width:2;rx:8}
+    .bxn{fill:#0b1f3a;rx:8}
+    .t{font:600 13px -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;fill:#1a1a1a}
+    .tw{font:700 13px -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;fill:#fff}
+    .s{font:11.5px -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;fill:#5a6472}
+    .sw{font:11.5px -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;fill:#aab4c2}
+    .ln{stroke:#5a6472;stroke-width:1.6;fill:none;marker-end:url(#ar)}
+    .lnr{stroke:#c8102e;stroke-width:1.8;fill:none;marker-end:url(#arR)}
+    .hd{font:700 11px -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;fill:#c8102e;letter-spacing:.07em}
+    .hdg{font:700 11px -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;fill:#5a6472;letter-spacing:.07em}
+    .cyc{font:italic 11px -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;fill:#c8102e}
+  </style>
+
+  <text x="185" y="22" class="hd">STAGE 1: INITIAL SEEDING</text>
+  <rect class="bx" x="185" y="32" width="420" height="72"/>
+  <text x="199" y="54" class="t">keyv monorepo trojanized</text>
+  <text x="199" y="73" class="s">maintainer account taken over, malicious code pushed to the</text>
+  <text x="199" y="89" class="s">shared repo, releases cut by the project's own pipeline</text>
+
+  <path class="ln" d="M395 104 V 132"/>
+  <rect class="bxr" x="185" y="132" width="420" height="56"/>
+  <text x="199" y="154" class="t">Poisoned package on npm</text>
+  <text x="199" y="173" class="s">Math_Symbol.js · math_init.js · identical SHA-256</text>
+
+  <text x="395" y="205" text-anchor="middle" class="hdg">EXECUTION WHEN LIFECYCLE SCRIPTS RUN</text>
+  <path class="ln" d="M395 210 V 222"/>
+
+  <rect class="bxn" x="185" y="222" width="420" height="52"/>
+  <text x="199" y="244" class="tw">npm install fires the preinstall hook</text>
+  <text x="199" y="262" class="sw">runs before installation completes, with no user interaction</text>
+
+  <path class="ln" d="M395 274 V 304"/>
+  <rect class="bxk" x="185" y="304" width="420" height="72"/>
+  <text x="199" y="326" class="t">setup.mjs, the dropper</text>
+  <text x="199" y="345" class="s">bundled in the tarball, not fetched remotely. Detects OS and</text>
+  <text x="199" y="361" class="s">architecture, then fetches Bun 1.3.13 from Oven</text>
+
+  <path class="ln" d="M395 376 V 406"/>
+  <rect class="bx" x="185" y="406" width="420" height="56"/>
+  <text x="199" y="428" class="t">Bun executes the obfuscated payload</text>
+  <text x="199" y="447" class="s">temporary bun-dl- directory is deleted afterwards</text>
+
+  <path class="ln" d="M395 462 V 492"/>
+  <rect class="bx" x="185" y="492" width="420" height="72"/>
+  <text x="199" y="514" class="t">Preflight checks</text>
+  <text x="199" y="533" class="s">exits on Russian locale · single-instance lock</text>
+  <text x="199" y="549" class="s">detaches on dev hosts, stays attached in CI for its secrets</text>
+
+  <path class="ln" d="M395 564 V 594"/>
+  <rect class="bxr" x="185" y="594" width="420" height="76"/>
+  <text x="199" y="616" class="t">Credential sweep, 300+ patterns</text>
+  <text x="199" y="635" class="s">npm · GitHub · cloud · K8s · Vault · SSH · AI tooling</text>
+  <text x="199" y="651" class="s">reads Runner.Worker /proc/&lt;pid&gt;/mem for OIDC tokens</text>
+
+  <path class="ln" d="M185 632 H 152"/>
+  <rect class="bx" x="12" y="594" width="140" height="76"/>
+  <text x="24" y="616" class="t">Exfiltration</text>
+  <text x="24" y="635" class="s">AES-256-GCM,</text>
+  <text x="24" y="651" class="s">RSA-wrapped</text>
+
+  <path class="ln" d="M395 670 V 700 H 152"/>
+  <rect class="bx" x="12" y="690" width="140" height="72"/>
+  <text x="24" y="712" class="t">Repo persistence</text>
+  <text x="24" y="731" class="s">.vscode/tasks.json</text>
+  <text x="24" y="747" class="s">.claude/settings.json</text>
+
+  <path class="lnr" d="M605 632 H 638"/>
+  <text x="638" y="712" class="hd">STAGE 2: WORM</text>
+  <rect class="bxr" x="638" y="594" width="250" height="76"/>
+  <text x="650" y="616" class="t">Token reused to poison more</text>
+  <text x="650" y="635" class="s">needs write access and bypass_2fa.</text>
+  <text x="650" y="651" class="s">Tarball rewritten, version bumped,</text>
+  <text x="650" y="667" class="s">re-published. No source commit needed</text>
+
+  <path class="lnr" d="M763 594 V 160 H 609"/>
+  <text x="646" y="738" class="cyc">each new victim runs the</text>
+  <text x="646" y="754" class="cyc">same chain and feeds it again</text>
+</svg>
+    <figcaption>Figure 2. ChainDrop execution and propagation flow. The initial seeding is shown at the top. Where lifecycle scripts are allowed to execute, everything below it repeats, and the worm stage closes the cycle by pushing freshly poisoned tarballs back onto npm, which is why the campaign spread without further operator involvement. The token-driven stage 2 path skips the release pipeline, so those versions carry no matching source commit.</figcaption>
+  </figure>
+
+  <h3>What runs when lifecycle scripts execute</h3>
+
+  <p>The only change to <code>package.json</code> is a single <code>preinstall</code> lifecycle script (T1059.007, Command and Scripting Interpreter: JavaScript). npm runs it <em>before</em> installation completes, so the payload executes on a developer workstation or CI/CD runner before the install finishes and before many post-install validation steps can occur. The script launches <code>setup.mjs</code>, a small cross-platform dropper that works on Linux, macOS, and Windows. If the <strong>Bun</strong> runtime (a legitimate JavaScript runtime, not compromised here, just borrowed as a portable execution vehicle that draws less attention where detection is tuned for Node.js <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a>) is not already on the system, the dropper detects the host platform and architecture and downloads Bun 1.3.13 from its legitimate release page, then uses it to execute the obfuscated payload. Once execution completes, the temporary Bun directory is deleted (T1070.004, Indicator Removal: File Deletion), a small anti-forensic touch that removes the most obvious artifact from disk. <a href="https://www.elastic.co/security-labs/shai-hulud-chaindrop-npm-supply-chain" target="_blank" rel="noopener">[4]</a></p>
+
+  <p>The payload itself ships under two different filenames, and the difference is diagnostically useful. Packages compromised <em>directly</em> from the <code>keyv</code> monorepo carry <code>Math_Symbol.js</code>, while packages trojanized later by <em>worm propagation</em> carry <code>math_init.js</code>. Both files share the same SHA-256 hash. The filename therefore acts as a marker of infection generation: it tells a responder whether a given package was part of the original compromise or a downstream casualty, without changing what the code does. <a href="https://www.elastic.co/security-labs/shai-hulud-chaindrop-npm-supply-chain" target="_blank" rel="noopener">[4]</a></p>
+
+  <figure class="code">
+<pre>{
+  <span class="str">"name"</span>: <span class="str">"keyv"</span>,
+  <span class="str">"version"</span>: <span class="str">"6.0.0"</span>,
+  <span class="str">"scripts"</span>: {
+    <span class="str">"preinstall"</span>: <span class="str">"node setup.mjs"</span>   <span class="cm">// runs before install completes</span>
+  }
+}</pre>
+    <figcaption>Figure 3. The malicious <code>preinstall</code> hook added to the compromised package manifest.</figcaption>
+  </figure>
+
+  <p>Before it does anything else, ChainDrop looks at where it has landed:</p>
+
+  <ul>
+    <li><strong>If the system language is Russian</strong>, it quits on the spot (T1614.001, System Language Discovery).</li>
+    <li><strong>If a copy is already running</strong>, the new one stops, which prevents concurrent duplicate execution.</li>
+    <li><strong>If no CI environment is detected</strong>, it assumes it is on a developer machine and relaunches itself as a detached background process, so it outlives <code>npm install</code> and keeps running after the install finishes.</li>
+    <li><strong>If a CI environment is detected</strong>, it stays attached to the active job instead. Detaching offers little here, since execution is already bound to the job's lifetime, and remaining attached is enough for it to read the secrets, runner credentials, and OIDC tokens available to that job.</li>
+  </ul>
+
+  <figure class="code">
+<pre><span class="kw">async function</span> <span class="fn">preflight</span>() {
+  <span class="kw">if</span> (<span class="fn">isRussianLanguageSystem</span>()) {
+    <span class="fn">exit</span>();
+  }
+
+  <span class="cm">// on developer hosts, re-launch detached and stop the foreground run</span>
+  <span class="kw">if</span> (!<span class="fn">isContinuousIntegration</span>() &amp;&amp; <span class="fn">launchDetachedCopy</span>()) {
+    <span class="fn">exit</span>();
+  }
+
+  <span class="cm">// single-instance lock prevents double execution</span>
+  <span class="kw">if</span> (!<span class="fn">acquireSingleInstanceLock</span>()) {
+    <span class="fn">exit</span>();
+  }
+}</pre>
+    <figcaption>Figure 4. Simplified environment check and execution logic. Adapted from Microsoft's analysis [6].</figcaption>
+  </figure>
+
+  <h3>Credential theft</h3>
+
+  <p>Once these environment checks pass, the malware turns to its real objective: hunting for credentials. It reads environment variables, shell histories (T1552.003, Unsecured Credentials: Bash History), cloud configuration files (T1552.001, Credentials In Files), and SSH keys (T1552.004, Private Keys), and pulls tokens from developer tools like the GitHub CLI (T1528, Steal Application Access Token), Docker, Terraform, and Vault. It also reads the config and auth files of AI coding tools, which often hold API keys billed to the organization. <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a></p>
+
+  <p>On Linux GitHub Actions runners it goes one step further and reads the runner process memory directly (<code>/proc/&lt;pid&gt;/mem</code>, T1003.007), catching short-lived OIDC tokens and secrets that never touch disk at all. <a href="https://insights.integrity360.com/threat-advisories/chaindrop-the-keyv-and-cacheable-npm-supply-chain-attack" target="_blank" rel="noopener">[5]</a></p>
+
+  <p>The payload then authenticates to npm, GitHub, AWS, Kubernetes and Vault with the collected credentials, calls each provider's API to list the resources that identity can reach (T1526, Cloud Service Discovery), and pulls the further secrets it finds there.</p>
+
+  <h3>Exfiltration and C2</h3>
+
+  <p>Collected data is serialized, gzip-compressed, and encrypted with an AES-256-GCM key, then wrapped with the attacker's RSA public key (T1573.002, Encrypted Channel: Asymmetric Cryptography). Exfiltration goes to an attacker-controlled HTTPS endpoint, but the domain is not hardcoded. It is resolved at runtime (T1568, Dynamic Resolution) from an <strong>Ethereum smart contract</strong> at <code>0xE1f2395ee43e45A1556EC6438a88c31B83493103</code>, so the operator can rotate infrastructure with a single blockchain transaction without touching the deployed malware. This happened on August 4, when the active domain was swapped on-chain. <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a> The domains seen in use were <code>awqhnjewqjkl[.]icu</code> and <code>npm-cache[.]com</code>. <a href="https://www.elastic.co/security-labs/shai-hulud-chaindrop-npm-supply-chain" target="_blank" rel="noopener">[4]</a></p>
+
+  <p>For C2 resolution the contract lookup is the primary mechanism, attempted against roughly 60 public Ethereum RPC endpoints until one answers, so blocking a single provider does not stop it. A signed GitHub commit acts as the fallback: the worm searches commit history for a marker (<code>thebeautifulmarchoftime</code>) and accepts a recovered domain only after checking it against an RSA public key embedded in the payload, so a defender cannot plant a fake marker and sinkhole the worm. That fallback was not in use at the time of analysis, since no valid operator record existed. <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a></p>
+
+  <p>The main payload exfiltrates harvested host data over two channels: the HTTPS endpoint above, and victim-owned GitHub repositories. Different vendors disagree on which is the primary channel and which is the fallback. <a href="https://www.aikido.dev/blog/keyv-and-friends-compromised-in-npm-supply-chain-attack" target="_blank" rel="noopener">[8]</a> For the GitHub channel, the worm creates a public repository under the victim's own account, described as <em>"Shai-Hulud: Here We Go Again"</em>, and commits the encrypted results there as <code>results-&lt;timestamp&gt;-&lt;counter&gt;.json</code> files (T1567.001, Exfiltration to Code Repository). That is how 453 candidate victim repositories were found. <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a></p>
+
+  <p>Separately, ChainDrop can exfiltrate repository secrets through a malicious GitHub Actions workflow. It plants a <code>.github/workflows/codeql_analysis.yml</code> file that serializes <code>${{ toJSON(secrets) }}</code> and uploads the result as an ordinary Actions artifact. <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a> Blocking the network route therefore does not close the problem, because the repository and artifact paths blend into ordinary authenticated GitHub traffic and evade simple domain-based blocking. Blocking a C2 domain with an HTTP error page also backfires, since the worm treats 400 and 404 responses as a healthy server. A sinkhole is therefore preferable to simple HTTP-error blocking.</p>
+
+  <p>After sending data, the payload reads the server's HTTP response, parses it as JSON, and evaluates a <code>code</code> field if one is present. <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a> No second stage is baked in, so the operator can serve different follow-on code to each victim at request time. A correctly formatted synthetic request to the live endpoint returned an empty response, so this channel was disarmed, selectively gated, or asynchronous at test time. It exists in the code, but was not confirmed firing.</p>
+
+  <h3>Persistence</h3>
+
+  <p>ChainDrop also establishes persistence in developer tooling. Using stolen GitHub credentials, it injects the malware and its loaders into eligible repository branches, targeting Claude Code and VS Code configuration paths: <code>.claude/settings.json</code>, <code>.claude/setup.mjs</code>, <code>.vscode/tasks.json</code> and <code>.vscode/setup.mjs</code>. <a href="https://www.microsoft.com/en-us/security/blog/2026/08/04/chaindrop-supply-chain-compromise-anatomy-self-propagating-worm/" target="_blank" rel="noopener">[6]</a> The VS Code task is labeled <em>Environment Setup</em> and fires on <code>folderOpen</code>; the Claude hook fires on <code>SessionStart</code> (T1546, Event Triggered Execution). This creates a secondary infection route: opening the folder or starting a session can restart the payload long after the npm install finished.</p>
+
+  <figure class="code">
+<pre><span class="kw">const</span> repositoryUpdates = {
+  <span class="str">".vscode/tasks.json"</span>:      vscodeTaskConfiguration,   <span class="cm">// runOn: folderOpen</span>
+  <span class="str">".vscode/setup.mjs"</span>:       loaderCode,
+  <span class="str">".claude/settings.json"</span>:   claudeSessionHook,         <span class="cm">// hook: SessionStart</span>
+  <span class="str">".claude/setup.mjs"</span>:       loaderCode,
+  <span class="str">".claude/&lt;payload&gt;"</span>:       currentMalwareBundle
+};
+
+<span class="kw">await</span> updateEligibleBranches(repositoryUpdates);</pre>
+    <figcaption>Figure 5. The five files committed into each reachable repository, enumerated by Unit 42 [3]. Code simplified from Microsoft's analysis [6].</figcaption>
+  </figure>
+
+  <p>In order to remove this persistence mechanism, all five files across both directories have to be deleted. <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a> Also, with a GitHub App token in hand the worm wrote the same files into up to 50 branches per repository, so every branch needs checking. <a href="https://www.elastic.co/security-labs/shai-hulud-chaindrop-npm-supply-chain" target="_blank" rel="noopener">[4]</a></p>
+
+  <p>ChainDrop also carries a second, OS-level persistence mechanism aimed at keeping a credential monitor running on the host. It installs a macOS LaunchAgent (<code>com.user.gh-token-monitor</code>) and a Linux systemd user service (<code>gh-token-monitor.service</code>), which keep watching for GitHub tokens and re-run the payload independently of the editor hooks above. Because these live at the operating-system level rather than inside the project, responders should hunt for both artifacts directly. <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a></p>
+
+  <h2>Evasion Mechanisms</h2>
+
+  <p>ChainDrop was not invisible. Behavioral detections could identify several of its actions, and security vendors found the campaign quickly. However, since the attack mainly ran through tools, workflows and network services that developers already use every day, the malicious behavior blended into otherwise legitimate software-development activity, which is what let it spread through hundreds of packages before the pattern stood out. On top of that blending, it leaned on several techniques to slow the analysts who did look: the payload was heavily obfuscated, its network destinations were built to change, and no single action looked malicious on its own.</p>
+
+  <h3>Obfuscation</h3>
+  <p>The payload was heavily obfuscated, making static inspection and signature creation more difficult. Analysts first had to decode strings and unwrap multiple transformation layers before the program's logic became readable <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a>.</p>
+
+<figure class="code">
+<pre><span class="cm">// What the analyst first sees: obfuscated payload (illustrative)</span>
+<span class="kw">const</span> _0x3f2a=[<span class="str">'\x65\x78\x69\x74'</span>,<span class="str">'\x6c\x61\x6e\x67'</span>,<span class="str">'\x52\x55'</span>];
+(<span class="kw">function</span>(_0x1a,_0x2b){<span class="kw">const</span> _0xc=<span class="fn">_0x4d</span>;<span class="kw">while</span>(!![]){
+<span class="kw">try</span>{<span class="kw">const</span> _0xe=-<span class="fn">parseInt</span>(_0xc(0x1f3))/(0x1*-0x1)+...
+}<span class="kw">catch</span>(_0x5f){_0x2b[<span class="str">'push'</span>](_0x2b[<span class="str">'shift'</span>]());}}}());
+<span class="kw">if</span>(<span class="fn">_0x4d</span>(0x1a2)[<span class="str">'includes'</span>](_0x3f2a[0x2]))_0x3f2a[0x0]();</pre>
+    <figcaption>Figure 6. Illustrative example of obfuscated JavaScript, not the ChainDrop sample itself. The real payload wrapped its strings in several nested layers: a custom encoding scheme, a PBKDF2-based byte permutation, and encrypted blobs holding the helpers, persistence installers and memory scraper [3]. The principle is the same as shown here; the scale of unwrapping is not.</figcaption>
+  </figure>
+
+  <p>Obfuscation did not remove the malware's observable behavior. The payload still had to execute processes, read credentials, access runner memory and communicate externally. Its value to the attacker was mainly to delay understanding and make static detection more difficult while the campaign was spreading.</p>
+
+  <h3>Network indicators</h3>
+  <p>The blockchain-based C2 resolution and layered payload encryption described above have a shared operational consequence worth stating plainly: the operator can move the destination with a single on-chain transaction, and even if a defender inspects the TLS connection, the data inside is still encrypted, because ChainDrop encrypts it with AES before it ever enters the tunnel. Together, these choices reduced the value of static domain blocklists and simple network-content inspection while the campaign was live.</p>
+
+  <h3>Detection depended on relationships, not individual indicators</h3>
+  <p>ChainDrop's defensive advantage was not that its actions were impossible to detect. It was that many individual components were legitimate:</p>
+
+  <ul>
+    <li>npm was legitimate.</li>
+    <li>Bun was legitimate.</li>
+    <li>GitHub and cloud APIs were legitimate.</li>
+    <li>The CI workflow could be legitimate.</li>
+    <li>A provenance signature could be valid.</li>
+    <li>HTTPS traffic could look routine.</li>
+  </ul>
+
+  <p>The signal was never in any one component but in the relationships between them: an install hook launching an unexpected dropper, Node handing execution to Bun, Bun reaching for credential helpers, or a CI runner having its process memory read. ChainDrop even carried a fully implemented path to abuse OIDC trusted publishing and produce a malicious package with valid provenance, though it was not seen executing. <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a> For defenders, that shifts detection away from any single file, signature or domain and toward validating the full execution and release chain.</p>
+
+  <h2>How to Detect and Prevent ChainDrop</h2>
+
+  <p>Response has two halves: finding out whether you were exposed, and cleaning up without triggering the malware's own defenses.</p>
+
+  <h3>Detection: what to look for</h3>
+  <ul>
+    <li><strong>Preinstall hooks and payload files.</strong> Audit <code>package.json</code> files and lockfiles for unexpected <code>preinstall</code> entries referencing <code>setup.mjs</code>. For payload files, hunt <code>Math_*.js</code> and <code>math_&lt;guid&gt;.js</code> as a wildcard rather than the two known names alone. <a href="https://www.microsoft.com/en-us/security/blog/2026/08/04/chaindrop-supply-chain-compromise-anatomy-self-propagating-worm/" target="_blank" rel="noopener">[6]</a></li>
+    <li><strong>Rogue GitHub repositories.</strong> Search your organization for unexpected public repositories described as <em>"Shai-Hulud: Here We Go Again"</em>, paired with Dune-derived names such as <code>sardaukar</code> or <code>harkonnen</code>. Private repositories will not appear in such a search, so a clean result is not proof. <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a></li>
+    <li><strong>Worm-authored commits.</strong> Propagation commits carry a consistent signature: author <code>claude</code> (<code>claude@users.noreply.github.com</code>) with the message <code>chore: update config</code>. Searching organization history for that pair is a high-signal, low-effort check. <a href="https://www.elastic.co/security-labs/shai-hulud-chaindrop-npm-supply-chain" target="_blank" rel="noopener">[4]</a></li>
+    <li><strong>The commit-message credential channel.</strong> Search commit history for the marker <code>IfYouBlockThisAPIKeyItWillCrashTheLiveProductionServersOfAllThirdPartyClients</code>. A stolen token sits behind it, double-Base64 encoded and nothing more. A hit means a live credential is in a public commit; revoke it. <a href="https://www.microsoft.com/en-us/security/blog/2026/08/04/chaindrop-supply-chain-compromise-anatomy-self-propagating-worm/" target="_blank" rel="noopener">[6]</a></li>
+    <li><strong>Editor and workflow config tampering.</strong> Check for unauthorized <code>.claude/settings.json</code> or <code>.vscode/</code> entries, and for an unexpected <code>.github/workflows/codeql_analysis.yml</code> containing <code>toJSON(secrets)</code>. Check every branch, not just the default one. <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a></li>
+    <li><strong>Bun staging directory.</strong> The dropper deletes its temporary <code>bun-dl-</code> directory afterwards, but process telemetry retains the path, which makes it a useful hunting anchor. <a href="https://www.microsoft.com/en-us/security/blog/2026/08/04/chaindrop-supply-chain-compromise-anatomy-self-propagating-worm/" target="_blank" rel="noopener">[6]</a></li>
+    <li><strong>CI build logs.</strong> Review logs and lockfiles for known-bad versions of <code>keyv</code>, <code>cacheable</code>, <code>flat-cache</code> and related packages. <a href="https://www.csa.gov.sg/alerts-and-advisories/advisories/ad-2026-009/" target="_blank" rel="noopener">[7]</a> In CI the worm runs inline rather than detaching, so its debug output lands in the workflow log. <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a></li>
+  </ul>
+
+  <p>The best place to catch this is the moment one process starts another: Node starting the dropper, then Bun running a payload filename that would be unexpected in a legitimate project context.</p>
+
+<figure class="code">
+<pre><span class="cm">// Dropper execution: node running setup.mjs</span>
+<span class="kw">FROM</span> logs-endpoint.events.process-*
+| <span class="kw">WHERE</span> process.name <span class="kw">IN</span> (<span class="str">"node"</span>, <span class="str">"node.exe"</span>)
+| <span class="kw">WHERE</span> process.command_line <span class="kw">IN</span> (<span class="str">"node setup.mjs"</span>, <span class="str">"node  setup.mjs"</span>)
+
+<span class="cm">// Payload execution: bun running the credential stealer</span>
+<span class="kw">FROM</span> logs-endpoint.events.process-*
+| <span class="kw">WHERE</span> process.name <span class="kw">IN</span> (<span class="str">"bun"</span>, <span class="str">"bun.exe"</span>)
+| <span class="kw">WHERE</span> process.command_line <span class="kw">LIKE</span> <span class="str">"*Math_Symbol.js*"</span>
+   <span class="kw">OR</span> process.command_line <span class="kw">LIKE</span> <span class="str">"*math_init.js*"</span></pre>
+    <figcaption>Figure 7. Elastic Security Labs hunting queries for the dropper and payload stages [4]. A third query in their set looks for DNS requests from Bun to the Ethereum RPC providers and drop domains.</figcaption>
+  </figure>
+
+  <p>Microsoft publishes a similar query for Defender XDR. It catches the campaign's most telling move in one line: a Bun process calling command-line tools to grab credentials and access tokens.</p>
+
+  <figure class="code">
+<pre><span class="cm">// Credential access: Bun payload shelling out to CLI credential helpers</span>
+DeviceProcessEvents
+| <span class="kw">where</span> Timestamp &gt; ago(<span class="str">3d</span>)
+| <span class="kw">where</span> ProcessCommandLine has_any (<span class="str">'gh auth token'</span>,
+    <span class="str">'gcloud config config-helper'</span>,
+    <span class="str">'az account get-access-token'</span>, <span class="str">'azd auth token'</span>)
+| <span class="kw">where</span> InitiatingProcessFileName in~ (<span class="str">"bun"</span>, <span class="str">"bun.exe"</span>)
+| <span class="kw">where</span> InitiatingProcessFolderPath contains <span class="str">"bun-dl-"</span>
+   <span class="kw">or</span> InitiatingProcessCommandLine has <span class="str">"node_modules"</span></pre>
+    <figcaption>Figure 8. Microsoft Defender XDR hunting query for credential-helper abuse under Bun [6]. The signal is which process starts which: a JavaScript runtime running <code>gh auth token</code> or <code>az account get-access-token</code> is highly unusual in a normal build, so Microsoft hunts for exactly that pairing.</figcaption>
+  </figure>
+
+    <h3>Cleanup</h3>
+  <p>To clean up, clear the npm and yarn caches on affected machines and build hosts, lock each project to a known-safe version so it stops pulling the bad one, and rebuild any shared base images and build runners that picked it up. <a href="https://www.microsoft.com/en-us/security/blog/2026/08/04/chaindrop-supply-chain-compromise-anatomy-self-propagating-worm/" target="_blank" rel="noopener">[6]</a> Then change any credentials that may have leaked, after making sure every persistence mechanism has been removed from the machine. One thing to watch: if a machine still has the payload's token monitor on it (files like <code>~/Library/LaunchAgents/com.user.gh-token-monitor.plist</code> or <code>~/.config/systemd/user/gh-token-monitor.service</code>), delete it before you revoke the token, because it can do damage when it sees the token being revoked. <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">[3]</a> For prevention going forward, one of the most effective steps is upgrading to npm 12 or later, which blocks install-time lifecycle scripts like <code>preinstall</code> by default and removes the exact mechanism the campaign relies on to run. <a href="https://www.elastic.co/security-labs/shai-hulud-chaindrop-npm-supply-chain" target="_blank" rel="noopener">[4]</a></p>
+
+  <h2>How Picus Helps Validate Defenses Against ChainDrop</h2>
+
+  <p>The hunting queries above tell you what to look for. What they cannot tell you is whether <em>your</em> deployment of them would actually fire. Most teams will copy the Elastic and Microsoft rules directly and assume coverage; every control is only as good as its behavior under attack, and that assumption is exactly what security validation exists to test. The <a href="https://www.picussecurity.com/security-validation-platform" target="_blank" rel="noopener">Picus Security Validation Platform</a> lets teams simulate ChainDrop's behaviors safely, confirm whether their controls actually block and detect them, and close any gaps with ready-to-use mitigation content.</p>
+
+  <h2>References</h2>
+  <ol style="font-size:14px;color:var(--muted);line-height:1.9;">
+    <li>Phoenix Security, "Mini Shai-Hulud: keyv/cacheable npm supply chain worm," 2026. Available: <a href="https://phoenix.security/mini-shai-hulud-keyv-cacheable-npm-supply-chain-worm/" target="_blank" rel="noopener">phoenix.security</a></li>
+    <li>OPSWAT, "Shai-Hulud Returns: ChainDrop Worm Hits npm, Infecting Hundreds of Packages," Aug. 2026. Available: <a href="https://www.opswat.com/blog/shai-hulud-returns-chaindrop-worm-hits-npm-infecting-hundreds-of-packages" target="_blank" rel="noopener">opswat.com</a></li>
+    <li>Unit 42, Palo Alto Networks, "ChainDrop: Inside a Self-Propagating npm Worm," Aug. 2026. Available: <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" target="_blank" rel="noopener">unit42.paloaltonetworks.com</a></li>
+    <li>Elastic Security Labs, "Shai-Hulud Strikes Again: CHAINDROP Worm Hits 400+ npm Packages," Aug. 6, 2026. Available: <a href="https://www.elastic.co/security-labs/shai-hulud-chaindrop-npm-supply-chain" target="_blank" rel="noopener">elastic.co/security-labs</a></li>
+    <li>Integrity360, "ChainDrop: The Keyv and Cacheable npm Supply Chain Attack," Aug. 2026. Available: <a href="https://insights.integrity360.com/threat-advisories/chaindrop-the-keyv-and-cacheable-npm-supply-chain-attack" target="_blank" rel="noopener">insights.integrity360.com</a></li>
+    <li>Microsoft Threat Intelligence, "ChainDrop Supply Chain Compromise: Anatomy of a Self-Propagating Worm," Aug. 4, 2026. Available: <a href="https://www.microsoft.com/en-us/security/blog/2026/08/04/chaindrop-supply-chain-compromise-anatomy-self-propagating-worm/" target="_blank" rel="noopener">microsoft.com/security/blog</a></li>
+    <li>Cyber Security Agency of Singapore, "Ongoing npm Supply Chain Attack Affecting Keyv and Related Packages," Advisory AD-2026-009, Aug. 2026. Available: <a href="https://www.csa.gov.sg/alerts-and-advisories/advisories/ad-2026-009/" target="_blank" rel="noopener">csa.gov.sg</a></li>
+    <li>Aikido Security, "Keyv and Friends Compromised in npm Supply Chain Attack," Aug. 2026. Available: <a href="https://www.aikido.dev/blog/keyv-and-friends-compromised-in-npm-supply-chain-attack" target="_blank" rel="noopener">aikido.dev</a></li>
+  </ol>
+
+</article>
+</div>
+
+<footer>
+  <div class="wrap">
+    Threat research write-up by Murat Can Oruntak &middot; Sample technical content &middot; August 2026
+  </div>
+</footer>
+
+</body>
+</html>
